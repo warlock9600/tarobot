@@ -12,6 +12,7 @@
 1. Подготовьте переменные окружения:
    - `BOT_TOKEN` — токен бота от BotFather (обязателен).
    - `DATABASE_URL` — строка подключения к базе. По умолчанию: `postgresql+asyncpg://postgres:postgres@localhost:5432/tarobot`.
+   - `DEBUG` — установите в `true`, чтобы включить детализированное логирование.
 2. (Локально) установите зависимости:
    ```bash
    pip install -r requirements.txt
