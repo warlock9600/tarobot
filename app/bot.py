@@ -12,7 +12,16 @@ from sqlalchemy import func, select
 from .config import settings
 from .db import AsyncSessionLocal, init_db
 from .models import Reading, User
-from .tarot_data import ARCANA, Arcana, GenderLiteral, get_prediction
+from .locales.ru import (
+    ARCANA,
+    Arcana,
+    BUTTON_TEXTS,
+    DEFAULT_NAMES,
+    GENDER_LABELS,
+    GenderLiteral,
+    MESSAGES,
+    get_prediction,
+)
 
 log_level = logging.DEBUG if settings.debug else logging.INFO
 logging.basicConfig(
@@ -26,14 +35,18 @@ router = Dispatcher()
 
 GENDER_KEYBOARD = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text="Мужчина", callback_data="gender:male")],
-        [InlineKeyboardButton(text="Женщина", callback_data="gender:female")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["male"], callback_data="gender:male")],
+        [InlineKeyboardButton(text=BUTTON_TEXTS["female"], callback_data="gender:female")],
     ]
 )
 
 SPONTANEOUS_KEYBOARD = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text="Получить спонтанное гадание", callback_data="spontaneous")]
+        [
+            InlineKeyboardButton(
+                text=BUTTON_TEXTS["spontaneous"], callback_data="spontaneous"
+            )
+        ]
     ]
 )
 
@@ -64,8 +77,8 @@ def _display_name(user: User, telegram_user: types.User) -> str:
     if telegram_user.username:
         return telegram_user.username
     if user.gender == "female":
-        return "незнакомка"
-    return "незнакомец"
+        return DEFAULT_NAMES["female"]
+    return DEFAULT_NAMES["male"]
 
 
 async def _get_or_create_user(session, telegram_user: types.User) -> User:
@@ -143,8 +156,7 @@ async def _maybe_offer_spontaneous(message: types.Message, session, user: User) 
     await session.commit()
     logger.info("Offering spontaneous reading to user %s", user.id)
     await message.answer(
-        "Сейчас самое время для неожиданного расклада. Хочешь спонтанное гадание?",
-        reply_markup=SPONTANEOUS_KEYBOARD,
+        MESSAGES["spontaneous_offer"], reply_markup=SPONTANEOUS_KEYBOARD
     )
 
 
@@ -163,11 +175,7 @@ async def cmd_start(message: types.Message) -> None:
     async with AsyncSessionLocal() as session:
         user = await _get_or_create_user(session, message.from_user)
         logger.info("/start from user %s", message.from_user.id)
-        greeting = (
-            "Привет! Я бот для гаданий на старших арканах Таро. "
-            "Выбери свой пол, чтобы тексты были точнее."
-        )
-        await message.answer(greeting, reply_markup=GENDER_KEYBOARD)
+        await message.answer(MESSAGES["greeting"], reply_markup=GENDER_KEYBOARD)
         await _maybe_offer_spontaneous(message, session, user)
 
 
@@ -175,7 +183,7 @@ async def cmd_start(message: types.Message) -> None:
 async def set_gender(callback: types.CallbackQuery) -> None:
     gender = callback.data.split(":", maxsplit=1)[1]
     if gender not in {"male", "female"}:
-        await callback.answer("Неизвестный выбор")
+        await callback.answer(MESSAGES["unknown_choice"])
         return
 
     async with AsyncSessionLocal() as session:
@@ -186,7 +194,9 @@ async def set_gender(callback: types.CallbackQuery) -> None:
             "User %s set gender to %s", callback.from_user.id, gender
         )
         name = _display_name(user, callback.from_user)
-        await callback.message.answer(f"Записала: {name}, пол — {'мужчина' if gender == 'male' else 'женщина'}.")
+        await callback.message.answer(
+            MESSAGES["gender_saved"].format(name=name, gender=GENDER_LABELS[gender])
+        )
         await callback.answer()
 
 
@@ -194,7 +204,9 @@ async def _ensure_gender_set(message: types.Message, user: User) -> bool:
     if user.gender in {"male", "female"}:
         return True
     logger.info("User %s requested reading without gender", user.id)
-    await message.answer("Укажи пол, чтобы подобрать подходящий текст.", reply_markup=GENDER_KEYBOARD)
+    await message.answer(
+        MESSAGES["ask_gender"], reply_markup=GENDER_KEYBOARD
+    )
     return False
 
 
@@ -213,7 +225,7 @@ async def _send_tarot(message: types.Message, is_spontaneous: bool = False) -> N
             used = await _count_today_readings(session, user.id)
             if used >= 5:
                 logger.info("User %s reached daily reading limit", user.id)
-                await message.answer("Лимит в пять предсказаний на сегодня исчерпан. Загляни завтра!")
+                await message.answer(MESSAGES["limit_reached"])
                 await _maybe_offer_spontaneous(message, session, user)
                 return
 
@@ -221,12 +233,13 @@ async def _send_tarot(message: types.Message, is_spontaneous: bool = False) -> N
         await _record_reading(session, user, arcana, prediction, is_spontaneous)
 
         name = _display_name(user, message.from_user)
-        intro = "Спонтанное гадание" if is_spontaneous else "Твоё предсказание"
+        intro_key = "spontaneous_intro" if is_spontaneous else "regular_intro"
+        intro = MESSAGES[intro_key].format(name=name)
         text = (
-            f"{intro}, {name}!\n\n"
-            f"Карта: {arcana.name}\n"
-            f"Значение: {arcana.description}\n\n"
-            f"Послание: {prediction}"
+            f"{intro}\n\n"
+            f"{MESSAGES['arcana_label'].format(arcana=arcana.name)}\n"
+            f"{MESSAGES['arcana_meaning'].format(description=arcana.description)}\n\n"
+            f"{MESSAGES['prediction_label'].format(prediction=prediction)}"
         )
         await message.answer(text)
 
@@ -245,7 +258,7 @@ async def spontaneous(callback: types.CallbackQuery) -> None:
         user = await _get_or_create_user(session, callback.from_user)
         now = datetime.now(timezone.utc)
         if user.last_spontaneous_at and user.last_spontaneous_at.date() == now.date():
-            await callback.answer("Спонтанное гадание уже было сегодня.", show_alert=True)
+            await callback.answer(MESSAGES["spontaneous_already"], show_alert=True)
             logger.info("User %s already had spontaneous reading today", user.id)
             return
 
