@@ -17,10 +17,11 @@ class Settings:
     daylight_end_hour: int = 20
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls, require_bot_token: bool = True) -> "Settings":
         bot_token = os.environ.get("BOT_TOKEN")
-        if not bot_token:
+        if require_bot_token and not bot_token:
             raise RuntimeError("BOT_TOKEN is required")
+        bot_token_value = bot_token or ""
 
         database_url = os.environ.get(
             "DATABASE_URL",
@@ -30,7 +31,7 @@ class Settings:
         daylight_end_hour = _env_int("DAYLIGHT_END_HOUR", 20)
 
         return cls(
-            bot_token=bot_token,
+            bot_token=bot_token_value,
             database_url=database_url,
             daylight_start_hour=daylight_start_hour,
             daylight_end_hour=daylight_end_hour,

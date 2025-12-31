@@ -36,6 +36,23 @@ python -m app.bot
    ```
    Сервис базы данных доступен внутри сети Compose по адресу `db:5432` с пользователем/паролем `postgres/postgres` и базой `tarobot`.
 
+## Обслуживание базы данных
+- Очистка и реинициализация схемы (для дебага):
+  ```bash
+  python scripts/reset_db.py
+  ```
+  или из Docker Compose:
+  ```bash
+  docker-compose run --rm bot python scripts/reset_db.py
+  ```
+  Скрипт удаляет все таблицы и создаёт их заново.
+
+- Бэкап базы данных (использует `pg_dump`, он установлен в Docker-образе бота):
+  ```bash
+  python scripts/backup_db.py
+  ```
+  Можно указать путь сохранения: `python scripts/backup_db.py -o backups/custom.dump`. В среде Docker Compose запускайте через `docker-compose run --rm bot python scripts/backup_db.py`. По умолчанию дампы складываются в каталог `backups/` и игнорируются Git.
+
 ## Основные команды
 - `/start` — регистрация и выбор пола.
 - `/tarot` — получить предсказание (учитывается лимит).
