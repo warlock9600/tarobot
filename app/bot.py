@@ -4,6 +4,7 @@ from datetime import datetime, time, timedelta, timezone
 from random import choice
 
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import func, select
@@ -259,7 +260,10 @@ async def spontaneous(callback: types.CallbackQuery) -> None:
 async def main() -> None:
     logger.info("Starting bot (debug=%s)", settings.debug)
     await init_db()
-    bot = Bot(token=settings.bot_token, parse_mode="HTML")
+    bot = Bot(
+        token=settings.bot_token,
+        default=DefaultBotProperties(parse_mode="HTML"),
+    )
     await router.start_polling(bot)
 
 
