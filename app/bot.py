@@ -85,7 +85,7 @@ async def _send_ephemeral(
     asyncio.create_task(_delete_message_after(sent))
 
 
-async def _get_or_create_user(session, telegram_user: types.User) -> User:
+async def _get_or_create_user(session, telegram_user: types.User) -> tuple[User, bool]:
     stmt = select(User).where(User.telegram_id == telegram_user.id)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
@@ -97,7 +97,7 @@ async def _get_or_create_user(session, telegram_user: types.User) -> User:
         await session.commit()
         await session.refresh(user)
         logger.info("Created user %s (%s)", telegram_user.id, username)
-        return user
+        return user, True
 
     updated = False
     if username and user.username != username:
@@ -107,7 +107,7 @@ async def _get_or_create_user(session, telegram_user: types.User) -> User:
         await session.commit()
         await session.refresh(user)
         logger.debug("Updated username for user %s to %s", telegram_user.id, username)
-    return user
+    return user, False
 
 
 async def _send_reading_prompt(message: types.Message) -> None:
@@ -161,10 +161,22 @@ async def _tarot_reading(user: User, gender: GenderLiteral) -> tuple[Arcana, str
 @router.message(Command("start"))
 async def cmd_start(message: types.Message) -> None:
     async with AsyncSessionLocal() as session:
-        user = await _get_or_create_user(session, message.from_user)
+        user, created = await _get_or_create_user(session, message.from_user)
         logger.info("/start from user %s", message.from_user.id)
-        await message.answer(MESSAGES["greeting"], reply_markup=GENDER_KEYBOARD)
-        await _send_reading_prompt(message)
+
+        if created:
+            await message.answer(MESSAGES["greeting"], reply_markup=GENDER_KEYBOARD)
+            return
+
+        name = _display_name(user, message.from_user)
+        if user.gender in {"male", "female"}:
+            await message.answer(MESSAGES["welcome_back"].format(name=name))
+            await _send_reading_prompt(message)
+        else:
+            await message.answer(
+                MESSAGES["welcome_back_no_gender"].format(name=name),
+                reply_markup=GENDER_KEYBOARD,
+            )
 
 
 @router.callback_query(F.data.startswith("gender:"))
@@ -175,7 +187,7 @@ async def set_gender(callback: types.CallbackQuery) -> None:
         return
 
     async with AsyncSessionLocal() as session:
-        user = await _get_or_create_user(session, callback.from_user)
+        user, _ = await _get_or_create_user(session, callback.from_user)
         user.gender = gender
         await session.commit()
         logger.info(
@@ -202,7 +214,7 @@ async def _ensure_gender_set(message: types.Message, user: User) -> bool:
 
 async def _send_tarot(message: types.Message) -> None:
     async with AsyncSessionLocal() as session:
-        user = await _get_or_create_user(session, message.from_user)
+        user, _ = await _get_or_create_user(session, message.from_user)
         logger.info("Sending reading to user %s", user.id)
         if not await _ensure_gender_set(message, user):
             return
