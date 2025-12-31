@@ -17,6 +17,7 @@ BUTTON_TEXTS = {
     "male": "⚔️ Мужчина",
     "female": "🌙 Женщина",
     "reading": "🔮 Получить предсказание",
+    "draw_card": "🃏 Вытянуть карту",
 }
 
 GENDER_LABELS = {

@@ -50,6 +50,19 @@ READING_KEYBOARD = InlineKeyboardMarkup(
     ]
 )
 
+DRAW_CARD_KEYBOARD = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=BUTTON_TEXTS["draw_card"], callback_data="reading"
+            )
+        ]
+    ]
+)
+
+
+_last_bot_messages: dict[int, int] = {}
+
 
 def _today_bounds() -> tuple[datetime, datetime]:
     today = datetime.now(timezone.utc).date()
@@ -78,10 +91,39 @@ async def _delete_message_after(message: types.Message, delay: int = 20) -> None
         logger.debug("Failed to delete message %s: %s", message.message_id, exc)
 
 
+async def _delete_message(
+    bot: Bot, chat_id: int, message_id: int | None, *, skip_id: int | None = None
+) -> None:
+    if not message_id or message_id == skip_id:
+        return
+    try:
+        await bot.delete_message(chat_id, message_id)
+        logger.debug("Deleted message %s in chat %s", message_id, chat_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "Failed to delete message %s in chat %s: %s", message_id, chat_id, exc
+        )
+
+
+async def _send_single_message(
+    target: types.Message, text: str, reply_markup: InlineKeyboardMarkup | None = None
+) -> types.Message:
+    bot = target.bot
+    chat_id = target.chat.id
+
+    await _delete_message(bot, chat_id, _last_bot_messages.get(chat_id))
+
+    sent = await target.answer(text, reply_markup=reply_markup)
+    _last_bot_messages[chat_id] = sent.message_id
+
+    await _delete_message(bot, chat_id, target.message_id, skip_id=sent.message_id)
+    return sent
+
+
 async def _send_ephemeral(
     target: types.Message, text: str, reply_markup: InlineKeyboardMarkup | None = None
 ) -> None:
-    sent = await target.answer(text, reply_markup=reply_markup)
+    sent = await _send_single_message(target, text, reply_markup=reply_markup)
     asyncio.create_task(_delete_message_after(sent))
 
 
@@ -111,7 +153,9 @@ async def _get_or_create_user(session, telegram_user: types.User) -> tuple[User,
 
 
 async def _send_reading_prompt(message: types.Message) -> None:
-    await message.answer(MESSAGES["reading_cta"], reply_markup=READING_KEYBOARD)
+    await _send_single_message(
+        message, MESSAGES["reading_cta"], reply_markup=READING_KEYBOARD
+    )
 
 
 async def _count_today_readings(session, user_id: int) -> int:
@@ -165,15 +209,20 @@ async def cmd_start(message: types.Message) -> None:
         logger.info("/start from user %s", message.from_user.id)
 
         if created:
-            await message.answer(MESSAGES["greeting"], reply_markup=GENDER_KEYBOARD)
+            await _send_single_message(
+                message, MESSAGES["greeting"], reply_markup=GENDER_KEYBOARD
+            )
             return
 
         name = _display_name(user, message.from_user)
         if user.gender in {"male", "female"}:
-            await message.answer(MESSAGES["welcome_back"].format(name=name))
+            await _send_single_message(
+                message, MESSAGES["welcome_back"].format(name=name)
+            )
             await _send_reading_prompt(message)
         else:
-            await message.answer(
+            await _send_single_message(
+                message,
                 MESSAGES["welcome_back_no_gender"].format(name=name),
                 reply_markup=GENDER_KEYBOARD,
             )
@@ -241,7 +290,7 @@ async def _send_tarot(message: types.Message, actor: types.User | None = None) -
             f"{MESSAGES['arcana_meaning'].format(description=arcana.description)}\n\n"
             f"{MESSAGES['prediction_label'].format(prediction=prediction)}"
         )
-        await message.answer(text)
+        await _send_single_message(message, text, reply_markup=DRAW_CARD_KEYBOARD)
 
 
 @router.callback_query(F.data == "reading")
