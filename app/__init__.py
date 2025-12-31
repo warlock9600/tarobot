@@ -1,0 +1,1 @@
+"""Tarot Telegram bot package."""
