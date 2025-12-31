@@ -212,9 +212,14 @@ async def _ensure_gender_set(message: types.Message, user: User) -> bool:
     return False
 
 
-async def _send_tarot(message: types.Message) -> None:
+async def _send_tarot(message: types.Message, actor: types.User | None = None) -> None:
+    actor = actor or message.from_user
+    if actor is None:
+        logger.warning("Cannot send reading without user information for message %s", message.message_id)
+        return
+
     async with AsyncSessionLocal() as session:
-        user, _ = await _get_or_create_user(session, message.from_user)
+        user, _ = await _get_or_create_user(session, actor)
         logger.info("Sending reading to user %s", user.id)
         if not await _ensure_gender_set(message, user):
             return
@@ -228,7 +233,7 @@ async def _send_tarot(message: types.Message) -> None:
         arcana, prediction = await _tarot_reading(user, user.gender)  # type: ignore[arg-type]
         await _record_reading(session, user, arcana, prediction)
 
-        name = _display_name(user, message.from_user)
+        name = _display_name(user, actor)
         intro = MESSAGES["regular_intro"].format(name=name)
         text = (
             f"{intro}\n\n"
@@ -242,7 +247,7 @@ async def _send_tarot(message: types.Message) -> None:
 @router.callback_query(F.data == "reading")
 async def reading(callback: types.CallbackQuery) -> None:
     logger.info("Reading request from user %s via inline button", callback.from_user.id)
-    await _send_tarot(callback.message)
+    await _send_tarot(callback.message, actor=callback.from_user)
     await callback.answer()
 
 
